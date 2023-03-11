@@ -47,33 +47,95 @@ classdef PMCZIMetaData
             assert(isempty(Value) || (isscalar(Value) && isnumeric(Value) && Value > 0 && mod(Value, 1) == 0), 'Wrong input.')
            obj.WantedPosition = Value; 
         end
-            
+        
+        
+        
     end
     
     methods % GETTERS
         
-        function ImageSegments =        getAllImageSegments(obj)
+
+
+
+        function [SummaryStart, SummarySize, SummaryStartCoordinate] = filterDimensionSummariesForChannelIndex(obj, SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex)
+
+              FirstChannelRows =                                      cell2mat(SummaryStart(2:end, 4)) == ChannelIndex;
+            FirstChannelRows =                                      [true; FirstChannelRows];
+
+            SummaryStart(~FirstChannelRows, :) =                    [];
+            SummarySize(~FirstChannelRows, :) =                     [];
+            SummaryStartCoordinate(~FirstChannelRows, :) =          [];
+
+
+        end
+
+
+        
+
+        function [SummaryStart, SummarySize, SummaryStartCoordinate] = getFullDimensionSummary(obj)
+
+            RequiredDimensions =        {'X', 'Y', 'Z', 'C', 'T', 'S', 'H', 'M'};
+
+            ImageSegments =             obj.getAllImageSegments;
+
+            Summary =                   cell(size(ImageSegments, 1) + 1, length(RequiredDimensions));
+            Summary(1, :) =             RequiredDimensions;
+
+
+            SummaryStart =              Summary;
+            SummarySize =               Summary;
+            SummaryStartCoordinate =    Summary;
+        
+
+            for index = 1 : size(ImageSegments, 1)
+
+                MySegment =                                     ImageSegments{index, 6};
+
+                MyDimensionEntries =                            MySegment.Directory.DimensionEntries;
+
+                DimensionNames =                                cellfun(@(x) x.Dimension(1), MyDimensionEntries, 'UniformOutput', false);
+
+                Comparison =                                    strcmp(DimensionNames', RequiredDimensions);
+                assert(min(Comparison) == 1, 'Wrong format')
+                
+                Starts =                                        cellfun(@(x) x.Start, MyDimensionEntries);                
+                SummaryStart(index + 1, :) =                    num2cell(Starts);
+                
+                Sizes =                                         cellfun(@(x) x.Size, MyDimensionEntries);
+                SummarySize(index + 1, :) =                     num2cell(Sizes);
+                
+                Sizes =                                         cellfun(@(x) x.StartCoordinate, MyDimensionEntries);
+                SummaryStartCoordinate(index + 1, :) =          num2cell(Sizes);
+                
+            end
+
+           UpdatedChannels =                       cell2mat(SummaryStart(2:end, 4)) + 1;
+          SummaryStart(2:end, 4) = num2cell(UpdatedChannels);
+
+        end
+
+        function ImageSegments =    getAllImageSegments(obj)
             ImageSegments =        obj.SegmentList(cellfun(@(x) contains(x, 'ZISRAWSUBBLOCK'), obj.SegmentList(:,1)),:);
 
         end
 
-        function list =                 getSegmentList(obj)
+        function list = getSegmentList(obj)
 
             list = obj.SegmentList;
 
         end
 
-        function metaData =             getMetaData(obj)
+        function metaData =     getMetaData(obj)
             % GETMETADATA returns meta-data structure;
             metaData = obj.MetaData;
         end
         
-        function string =               getMetaDataString(obj)
+        function string =       getMetaDataString(obj)
             % GETMETADATASTRING returns entire meta-data string of the file;
                 string =     obj.SegmentList{cellfun(@(x) contains(x, 'ZISRAWMETADATA'), obj.SegmentList(:,1)),6};
         end
         
-        function Summary =              getObjectiveSummary(obj)
+        function Summary =      getObjectiveSummary(obj)
             % GETOBJECTIVESUMMARY returns summary text describing objective;
             
                 myString =                  obj.getMetaDataString;
@@ -122,10 +184,10 @@ classdef PMCZIMetaData
      
         end
         
-        function string =               getImageCaptureSummary(obj)
+        function string =       getImageCaptureSummary(obj)
             % GETIMAGECAPTURESUMMARY returns relevant XML text about image-capture;
             
-            myString =      obj.getMetaDataString;
+            myString =      getMetaDataString(obj);
             xmlParser =     PMXML(myString);
             ImageData =     xmlParser.getElementContentsWithTitle('Image');
              
@@ -136,32 +198,104 @@ classdef PMCZIMetaData
                     
         end
         
-        function value =                getFileCouldBeAccessed(obj)
+        function value =        getFileCouldBeAccessed(obj)
             value =         obj.getPointer ~= -1;
         end
-
+        
+        
+        
     end
 
     methods % GETTERS: STITCHING
 
-        function  [Stitching ] =        getStitchingStructureForChannelIndex(obj, ChannelIndex)
-            [SummaryStart, SummarySize, SummaryStartCoordinate] =           obj.getFullDimensionSummary;
-            [SummaryStart, SummarySize, SummaryStartCoordinate] =           obj.filterDimensionSummariesForChannelIndex(SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex);
-            [Stitching ] =                                                  obj.getStitchingStructureForInput(SummaryStart, SummarySize, SummaryStartCoordinate);
-           
+
+        function  [Stitching ] = getStitchingStructureForChannelIndex(obj, ChannelIndex)
+
+            [SummaryStart, SummarySize, SummaryStartCoordinate] =       obj.getFullDimensionSummary;
+
+             [SummaryStart, SummarySize, SummaryStartCoordinate] =          obj.filterDimensionSummariesForChannelIndex(SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex);
+
+               [Stitching ] =                                              obj.getStitchingStructureForInput(SummaryStart, SummarySize, SummaryStartCoordinate);
+              
+
+
+
+
         end
 
-        function [Stitching ] =         getStitchingStructure(obj)
+         function [Stitching ] = getStitchingStructure(obj)
+
                 [SummaryStart, SummarySize, SummaryStartCoordinate] =       obj.getFullDimensionSummary;
                 [Stitching ] =                                              obj.getStitchingStructureForInput(SummaryStart, SummarySize, SummaryStartCoordinate);
                
+              
          end
+
+       
+
+
+
+
+
+
+
+
+
+
 
     end
 
+    methods (Access = private)
+
+          function [Stitching ] = getStitchingStructureForInput(obj, SummaryStart, SummarySize, SummaryStartCoordinate)
+
+
+             [XStart, XSize, XStartCoordinate] = obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 1);
+
+
+                Stitching.X =              obj.getStitchingStructureForColumn(XStart, XSize, XStartCoordinate);
+              
+
+                 [YStart, YSize, YStartCoordinate] = obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 2);
+                Stitching.Y =              obj.getStitchingStructureForColumn(YStart, YSize, YStartCoordinate);
+         end
+
+   
+
+         function StitchingStructure = getStitchingStructureForColumn(obj, Start, SizeList, StartCoordinate)
+
+           StartCoordinates =   unique(StartCoordinate);
+           assert(length(StartCoordinates) == 1, 'All start-coordinates must be the same.')
+           assert( StartCoordinates== 0, 'All start-coordinates must be zero.')
+
+            
+            XSize =                     unique(SizeList);
+            assert(length(XSize) == 1, 'All sizes must be the same.')
+            
+                XShifts =                   Start - min(Start);
+            
+                 StitchingStructure.TotalSize =     max(XShifts) + XSize;
+                 StitchingStructure.PanelSizes =     SizeList;
+                 StitchingStructure.Shifts =        XShifts;
+
+         end
+
+
+              function [SummaryStart, SummarySize, SummaryStartCoordinate] = convertCellMatrixIntoNumericVectorForColumn(obj, SummaryStart, SummarySize, SummaryStartCoordinate, Column)
+
+                   SummaryStart =                       cell2mat(SummaryStart(2 : end, Column));
+                   SummarySize =                        cell2mat(SummarySize(2 : end, Column));
+                   SummaryStartCoordinate =             cell2mat(SummaryStartCoordinate(2 : end, Column));
+
+
+              end
+
+
+    end
+    
     methods % GETTERS IMAGE-MAP
         
-          function imageMap =           getImageMap(obj, varargin)
+          function imageMap =     getImageMap(obj, varargin)
                 imageMap = obj.ImageMap;
           end
            
@@ -169,7 +303,7 @@ classdef PMCZIMetaData
     
     methods % GETTERS DIMENSIONS
         
-        function number =               getNumberOfScences(obj)
+        function number =       getNumberOfScences(obj)
             % GETNUMBEROFSCENCES returns number of scenes (1 is default);
             DimensionEntries =      obj.getDimensionEntriesFor(obj.getAllImageSegments, 'S');
             if isempty(DimensionEntries)
@@ -182,115 +316,15 @@ classdef PMCZIMetaData
 
     end
 
-    methods  % FILE-MANAGEMENT
-    
-        function pointer =              getPointer(obj)
+      methods  % FILE-MANAGEMENT
+        
+        function pointer = getPointer(obj)
             pointer = fopen(obj.FileName,'r','l');
             
         end
-        
+
     end
-
-    methods (Access = private) % GETTERS: STITCHING
-
-         function [SummaryStart, SummarySize, SummaryStartCoordinate] = getFullDimensionSummary(obj)
-
-            RequiredDimensions =        {'X', 'Y', 'Z', 'C', 'T', 'S', 'H', 'M'};
-
-            ImageSegments =             obj.getAllImageSegments;
-
-            Summary =                   cell(size(ImageSegments, 1) + 1, length(RequiredDimensions));
-            Summary(1, :) =             RequiredDimensions;
-
-
-            SummaryStart =              Summary;
-            SummarySize =               Summary;
-            SummaryStartCoordinate =    Summary;
-        
-
-            for index = 1 : size(ImageSegments, 1)
-
-                MySegment =                                     ImageSegments{index, 6};
-
-                MyDimensionEntries =                            MySegment.Directory.DimensionEntries;
-
-                DimensionNames =                                cellfun(@(x) x.Dimension(1), MyDimensionEntries, 'UniformOutput', false);
-
-                Comparison =                                    strcmp(DimensionNames', RequiredDimensions);
-                assert(min(Comparison) == 1, 'Wrong format')
-                
-                Starts =                                        cellfun(@(x) x.Start, MyDimensionEntries);                
-                SummaryStart(index + 1, :) =                    num2cell(Starts);
-                
-                Sizes =                                         cellfun(@(x) x.Size, MyDimensionEntries);
-                SummarySize(index + 1, :) =                     num2cell(Sizes);
-                
-                Sizes =                                         cellfun(@(x) x.StartCoordinate, MyDimensionEntries);
-                SummaryStartCoordinate(index + 1, :) =          num2cell(Sizes);
-                
-            end
-
-           UpdatedChannels =                       cell2mat(SummaryStart(2:end, 4)) + 1;
-          SummaryStart(2:end, 4) = num2cell(UpdatedChannels);
-
-        end
-
-
-
-
-        function [SummaryStart, SummarySize, SummaryStartCoordinate] = filterDimensionSummariesForChannelIndex(obj, SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex)
-
-              FirstChannelRows =                                      cell2mat(SummaryStart(2:end, 4)) == ChannelIndex;
-            FirstChannelRows =                                      [true; FirstChannelRows];
-
-            SummaryStart(~FirstChannelRows, :) =                    [];
-            SummarySize(~FirstChannelRows, :) =                     [];
-            SummaryStartCoordinate(~FirstChannelRows, :) =          [];
-
-
-        end
-
-        
-            function [Stitching ] = getStitchingStructureForInput(obj, SummaryStart, SummarySize, SummaryStartCoordinate)
-                [XStart, XSize, XStartCoordinate] =     obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 1);
-                Stitching.X =                           obj.getStitchingStructureForColumn(XStart, XSize, XStartCoordinate);
-                 [YStart, YSize, YStartCoordinate] =    obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 2);
-                Stitching.Y =                           obj.getStitchingStructureForColumn(YStart, YSize, YStartCoordinate);
-            end
-            
-            
-            
-            function StitchingStructure = getStitchingStructureForColumn(obj, Start, SizeList, StartCoordinate)
-            
-                StartCoordinates =   unique(StartCoordinate);
-                assert(length(StartCoordinates) == 1, 'All start-coordinates must be the same.')
-                assert( StartCoordinates== 0, 'All start-coordinates must be zero.')
-                
-                
-                XSize =                     unique(SizeList);
-                assert(length(XSize) == 1, 'All sizes must be the same.')
-                
-                XShifts =                   Start - min(Start);
-                
-                 StitchingStructure.TotalSize =     max(XShifts) + XSize;
-                 StitchingStructure.PanelSizes =     SizeList;
-                 StitchingStructure.Shifts =        XShifts;
-            
-            end
-            
-            
-              function [SummaryStart, SummarySize, SummaryStartCoordinate] = convertCellMatrixIntoNumericVectorForColumn(obj, SummaryStart, SummarySize, SummaryStartCoordinate, Column)
-            
-                   SummaryStart =                       cell2mat(SummaryStart(2 : end, Column));
-                   SummarySize =                        cell2mat(SummarySize(2 : end, Column));
-                   SummaryStartCoordinate =             cell2mat(SummaryStartCoordinate(2 : end, Column));
-            
-            
-              end
-            
-        
-        end
-
+    
     methods (Access = private) % GETTERS DIMENSION
        
         function WantedDimensionEntries =   getAllDimensionEntries(obj, Character)
