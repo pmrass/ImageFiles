@@ -144,7 +144,7 @@ classdef PMImageMap
 
         function obj = setFileName(obj, FileName)
 
-            obj.RawData(:, obj.FilePointerColumn) = {FileName};
+            obj.RawData(:, obj.FilePointerColumn) = {}
 
         end
 

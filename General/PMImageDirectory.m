@@ -36,15 +36,20 @@ classdef PMImageDirectory
 
         function Image = getImage(obj)
 
-            assert(obj.getNumberOfStrips == 1, 'Wrong content.')
+            assert(obj.getNumberOfStrips == 1, 'Currently image can be generated only if file has precisely one strip.')
+
+         
+            StripData =         obj.getStripMatrices;
+            Image  =            StripData{1};
+
+        end
+
+        function StripData = getStripMatrices(obj)
 
             StripData =         obj.readStripsFromFile;
             StripData =         obj.deCompressStripData(StripData);
-            StripData =         obj.reshapeStripData(StripData) ; 
+            StripData =         obj.convertImageVectorIntoMatrix(StripData) ; 
 
-            assert(length(StripData) == 1, 'Currently image can be generated only if file has precisely one strip.')
-             
-            Image  =            StripData{1};
 
         end
 
@@ -53,9 +58,7 @@ classdef PMImageDirectory
             % input 5D-image volume
             % output 5D-image volume (after writing image data of file into volume);
 
-            StripData =         obj.readStripsFromFile;
-            StripData =         obj.deCompressStripData(StripData);
-            StripData =         obj.reshapeStripData(StripData) ; 
+             StripMatrices =             obj.getStripMatrices; 
              
             for CurrentStripIndex = 1 : obj.getNumberOfStrips
                 
@@ -65,7 +68,7 @@ classdef PMImageDirectory
                             obj.getPlanes, ...
                             obj.getFrames, ...
                             obj.getChannelForStripIndex(CurrentStripIndex)...
-                            )=     StripData{CurrentStripIndex};
+                            )=     StripMatrices{CurrentStripIndex};
                 
                 
             end
@@ -189,23 +192,23 @@ classdef PMImageDirectory
              
          end
          
-         function StripData =       reshapeStripData(obj, StripData)
+         function StripMatrices =       convertImageVectorIntoMatrix(obj, StripMatrices)
              
              
-              StripInput = StripData;
+              ImageVectors = StripMatrices;
              
-              StripData= cell(obj.getNumberOfStrips, 1);
+              StripMatrices= cell(obj.getNumberOfStrips, 1);
               for CurrentStripIndex = 1 : obj.getNumberOfStrips
               
-                        Input = StripInput{CurrentStripIndex, 1};
+                        CurrentVector = ImageVectors{CurrentStripIndex, 1};
               
-                        StripData{CurrentStripIndex, 1}=        reshape( ...
-                                        Input , ...
+                        StripMatrices{CurrentStripIndex, 1}=        reshape( ...
+                                        CurrentVector , ...
                                         obj.getNumberOfColumns, ...
                                         obj.getRowsOfStripIndex(CurrentStripIndex), ...
                                         length(obj.getPlanes));   
                                     
-                        StripData{CurrentStripIndex, 1} =         permute (StripData{CurrentStripIndex, 1}, [2 1 3]);  % in image rows should come first, but reshape reads columns first that's why a switch is necessary;  
+                        StripMatrices{CurrentStripIndex, 1} =         permute (StripMatrices{CurrentStripIndex, 1}, [2 1 3]);  % in image rows should come first, but reshape reads columns first that's why a switch is necessary;  
 
               end
              
