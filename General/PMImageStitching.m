@@ -1,5 +1,5 @@
 classdef PMImageStitching
-    %PMIMAGESTITCHING To reconstruct a single image from a series of subimages;
+    %PMIMAGESTITCHING to reconstruct a single image from a series of (stitched) subimages;
     
     properties (Access = private)
         ImageMap
