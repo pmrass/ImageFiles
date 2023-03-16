@@ -1,20 +1,25 @@
 classdef PMCZIMetaData
     %PMCZIDOCUMENT read meta-data from CZI files
     %   provides methods that allow retrieval of metadata;
-    %   getImageMap provides access to individual images contained within czi file;
+    %   for example: getImageMap provides information to read individual images contained within czi file;
     
     properties (Access = private)
         FileName
         
-        SegmentList
-        SegmentListColumns = {'ID';'OffsetHeader';'OffsetData';'AllocatedSize';'UsedSize'};
-        
+        SegmentList %
+        % SegmentListColumns = {'ID';'OffsetHeader';'OffsetData';'AllocatedSize';'UsedSize'; structure with actual content};
         FilePointer
         
         MetaData
         ImageMap
-        
         WantedPosition
+        RequiredDimensions =                    {'X', 'Y', 'Z', 'C', 'T', 'S', 'H', 'M'};
+
+    end
+
+    properties (Access = private) % derivative data:
+        AllDimensionKeys
+        DimensionSummary
 
     end
     
@@ -40,6 +45,8 @@ classdef PMCZIMetaData
             obj.ImageMap =          obj.getImageMapInternal;
             obj.MetaData =          obj.getMetaDataInternal;
             obj =                   obj.AdjustMetaDataByImageMap;
+
+            obj =                   obj.setDimensionSummary;
             
         end
         
@@ -49,112 +56,17 @@ classdef PMCZIMetaData
         end
             
     end
-    
-    methods % GETTERS
-        
-        function ImageSegments =        getAllImageSegments(obj)
-            ImageSegments =        obj.SegmentList(cellfun(@(x) contains(x, 'ZISRAWSUBBLOCK'), obj.SegmentList(:,1)),:);
 
-        end
-
-        function list =                 getSegmentList(obj)
-
-            list = obj.SegmentList;
-
-        end
-
-        function metaData =             getMetaData(obj)
-            % GETMETADATA returns meta-data structure;
-            metaData = obj.MetaData;
-        end
-        
-        function string =               getMetaDataString(obj)
-            % GETMETADATASTRING returns entire meta-data string of the file;
-                string =     obj.SegmentList{cellfun(@(x) contains(x, 'ZISRAWMETADATA'), obj.SegmentList(:,1)),6};
-        end
-        
-        function Summary =              getObjectiveSummary(obj)
-            % GETOBJECTIVESUMMARY returns summary text describing objective;
-            
-                myString =                  obj.getMetaDataString;
-                xmlParser =                 PMXML(myString);
-                objectiveData =             xmlParser.getElementContentsWithTitle('Objectives');
-                assert(length(objectiveData) == 1, 'Can parse only single used objective.')
-                
-                LensNA =                    PMXML(objectiveData{1}).getElementContentsWithTitle('LensNA');
-                NominalMagnification =      PMXML(objectiveData{1}).getElementContentsWithTitle('NominalMagnification');
-                WorkingDistance =           PMXML(objectiveData{1}).getElementContentsWithTitle('WorkingDistance');
-                PupilGeometry =             PMXML(objectiveData{1}).getElementContentsWithTitle('PupilGeometry');
-                ImmersionRefractiveIndex =  PMXML(objectiveData{1}).getElementContentsWithTitle('ImmersionRefractiveIndex');
-                Immersion =                 PMXML(objectiveData{1}).getElementContentsWithTitle('Immersion');
-
-                 [ AttributeNames, AttributeValues ] = PMXML(objectiveData{1}).getAttributesForElementKey('Objective');
-
-                 assert(length(AttributeNames) == 1, 'Cannot parse multiple inputs')
-                 Index = strcmp(AttributeNames{1}, 'Name');
-
-                 ObjectiveName = AttributeValues{1}{Index};
-
-                pos = strfind(myString, ['<Objective Name="', ObjectiveName]);
-                if length(pos)== 1
-                    NewString = myString(pos:end);
-                    Pos = strfind(NewString, 'UniqueName');
-                    NewString = NewString(Pos:end);
-                    Pos = strfind(NewString , '"');
-                    Identifier = NewString(Pos(1) + 1: Pos(2) - 1);
-                else
-                   Identifier = 'Identifier not found.';
-                end
-
-                myObjective = PMObjective(...
-                                ObjectiveName, ...
-                                Identifier, ...
-                                LensNA{1}, ...
-                                NominalMagnification{1}, ...
-                                WorkingDistance{1}, ...
-                                PupilGeometry{1}, ...
-                                ImmersionRefractiveIndex{1}, ...
-                                Immersion{1} ...
-                                );
-
-                  Summary =          myObjective.getSummary;
-                  
-     
-        end
-        
-        function string =               getImageCaptureSummary(obj)
-            % GETIMAGECAPTURESUMMARY returns relevant XML text about image-capture;
-            
-            myString =      obj.getMetaDataString;
-            xmlParser =     PMXML(myString);
-            ImageData =     xmlParser.getElementContentsWithTitle('Image');
-             
-            assert(length(ImageData) == 1, 'Cannot process multiple Image fields.')
-            ChannelData =   PMXML(ImageData{1}).getElementContentsWithTitle('Channels');
-                
-            string =        splitlines(ChannelData);
-                    
-        end
-        
-        function value =                getFileCouldBeAccessed(obj)
-            value =         obj.getPointer ~= -1;
-        end
-
-    end
-
-    methods % GETTERS: STITCHING
+      methods % GETTERS: STITCHING
 
         function  [Stitching ] =        getStitchingStructureForChannelIndex(obj, ChannelIndex)
-            [SummaryStart, SummarySize, SummaryStartCoordinate] =           obj.getFullDimensionSummary;
-            [SummaryStart, SummarySize, SummaryStartCoordinate] =           obj.filterDimensionSummariesForChannelIndex(SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex);
-            [Stitching ] =                                                  obj.getStitchingStructureForInput(SummaryStart, SummarySize, SummaryStartCoordinate);
-           
+            MyDimensionSummary =           obj.getDimensionSummaryForIndex( ChannelIndex);
+            Stitching.X =                  obj.getStitchingStructureForInput(MyDimensionSummary, 'X');
+            Stitching.Y =                  obj.getStitchingStructureForInput(MyDimensionSummary, 'Y');
         end
 
         function [Stitching ] =         getStitchingStructure(obj)
-                [SummaryStart, SummarySize, SummaryStartCoordinate] =       obj.getFullDimensionSummary;
-                [Stitching ] =                                              obj.getStitchingStructureForInput(SummaryStart, SummarySize, SummaryStartCoordinate);
-               
+             [Stitching ] =        obj.getStitchingStructureForChannelIndex(1);
          end
 
     end
@@ -171,7 +83,7 @@ classdef PMCZIMetaData
         
         function number =               getNumberOfScences(obj)
             % GETNUMBEROFSCENCES returns number of scenes (1 is default);
-            DimensionEntries =      obj.getDimensionEntriesFor(obj.getAllImageSegments, 'S');
+            DimensionEntries =      obj.getDimensionInfoFor(obj.getAllImageSegments, 'S');
             if isempty(DimensionEntries)
                 number = 1;
             else
@@ -182,7 +94,55 @@ classdef PMCZIMetaData
 
     end
 
-    methods  % FILE-MANAGEMENT
+
+    
+    methods % GETTERS
+        
+        function ImageSegments =        getAllImageSegments(obj)
+            ImageSegments =         obj.SegmentList(cellfun(@(x) contains(x, 'ZISRAWSUBBLOCK'), obj.SegmentList(:,1)),:);
+        end
+
+        function list =                 getSegmentList(obj)
+            list = obj.SegmentList;
+        end
+
+        function metaData =             getMetaData(obj)
+            % GETMETADATA returns meta-data structure;
+            metaData = obj.MetaData;
+        end
+        
+        function string =               getMetaDataString(obj)
+            % GETMETADATASTRING returns entire meta-data string of the file;
+                string =                    obj.SegmentList{cellfun(@(x) contains(x, 'ZISRAWMETADATA'), obj.SegmentList(:,1)),6};
+        end
+        
+        function Summary =              getObjectiveSummary(obj)
+            % GETOBJECTIVESUMMARY returns summary text describing objective;
+            ObjectiveStructure =                obj.getObjectiveStructure;
+            ObjectiveStructure.Name =           obj.getObjectiveName;
+            ObjectiveStructure.Identifier =     obj.getIdentifierForObjectiveName(ObjectiveStructure.Name);
+            myObjective =                       PMObjective(ObjectiveStructure);
+            Summary =                           myObjective.getSummary;
+        end
+        
+        function string =               getImageCaptureSummary(obj)
+            % GETIMAGECAPTURESUMMARY returns relevant XML text about image-capture;
+            myString =                  obj.getMetaDataString;
+            xmlParser =                 PMXML(myString);
+            ImageData =                 xmlParser.getElementContentsWithTitle('Image');
+             
+            assert(length(ImageData) == 1, 'Cannot process multiple Image fields.')
+            ChannelData =               PMXML(ImageData{1}).getElementContentsWithTitle('Channels');
+            string =                    splitlines(ChannelData);  
+        end
+        
+        function value =                getFileCouldBeAccessed(obj)
+            value =         obj.getPointer ~= -1;
+        end
+
+    end
+
+    methods (Access = private)  % FILE-MANAGEMENT
     
         function pointer =              getPointer(obj)
             pointer = fopen(obj.FileName,'r','l');
@@ -193,199 +153,242 @@ classdef PMCZIMetaData
 
     methods (Access = private) % GETTERS: STITCHING
 
-         function [SummaryStart, SummarySize, SummaryStartCoordinate] = getFullDimensionSummary(obj)
+         function obj = setDimensionSummary(obj)
+            obj =               obj.setDimensionSummaryFor('Start');
+            obj =               obj.setDimensionSummaryFor('Size');
+            obj =               obj.setDimensionSummaryFor('StartCoordinate');
+            obj =               obj.finalizeDimensionSummary;
+         end
 
-            RequiredDimensions =        {'X', 'Y', 'Z', 'C', 'T', 'S', 'H', 'M'};
+         function obj = setDimensionSummaryFor(obj, Parameter)
+            ImageSegments =                         obj.getAllImageSegments;
+            Starts =                                cellfun(@(x)  ...
+                                                        obj.getDimensionValues(x.Directory.DimensionEntries, obj.RequiredDimensions, Parameter), ...
+                                                        ImageSegments(:, 6), ...
+                                                        'UniformOutput',false);
+            FieldName =                             ['Summary', Parameter];
+            obj.DimensionSummary.(FieldName) =      obj.processMatrix(Starts);
 
-            ImageSegments =             obj.getAllImageSegments;
+         end
 
-            Summary =                   cell(size(ImageSegments, 1) + 1, length(RequiredDimensions));
-            Summary(1, :) =             RequiredDimensions;
-
-
-            SummaryStart =              Summary;
-            SummarySize =               Summary;
-            SummaryStartCoordinate =    Summary;
+        function [SummaryStart] = processMatrix(obj, Starts)
         
-
-            for index = 1 : size(ImageSegments, 1)
-
-                MySegment =                                     ImageSegments{index, 6};
-
-                MyDimensionEntries =                            MySegment.Directory.DimensionEntries;
-
-                DimensionNames =                                cellfun(@(x) x.Dimension(1), MyDimensionEntries, 'UniformOutput', false);
-
-                Comparison =                                    strcmp(DimensionNames', RequiredDimensions);
-                assert(min(Comparison) == 1, 'Wrong format')
-                
-                Starts =                                        cellfun(@(x) x.Start, MyDimensionEntries);                
-                SummaryStart(index + 1, :) =                    num2cell(Starts);
-                
-                Sizes =                                         cellfun(@(x) x.Size, MyDimensionEntries);
-                SummarySize(index + 1, :) =                     num2cell(Sizes);
-                
-                Sizes =                                         cellfun(@(x) x.StartCoordinate, MyDimensionEntries);
-                SummaryStartCoordinate(index + 1, :) =          num2cell(Sizes);
-                
-            end
-
-           UpdatedChannels =                       cell2mat(SummaryStart(2:end, 4)) + 1;
-          SummaryStart(2:end, 4) = num2cell(UpdatedChannels);
-
+            SummaryStart =                          vertcat(Starts{:});
+            Empty =                                 cellfun(@(x) isempty(x), SummaryStart);
+            MyType =                                class(SummaryStart{1});
+            SummaryStart(Empty) =                   {cast(0, MyType)};
+            SummaryStart =                          cell2mat(SummaryStart);
+            
+        
         end
 
 
+         function obj = finalizeDimensionSummary(obj)
+
+             ImageSegments =                                     obj.getAllImageSegments;
+             obj.AllDimensionKeys =                              obj.getAllDimensionKeysForEntries(ImageSegments{1, 6}.Directory.DimensionEntries);
+              for index = 1 : length(obj.RequiredDimensions)
+                 CurrentDimension =                     obj.RequiredDimensions{index};
+                 if max(strcmp(CurrentDimension, obj.AllDimensionKeys)) == 0
+                    obj.DimensionSummary.SummaryStart(:, index) =            0;
+                    obj.DimensionSummary.SummarySize(:, index) =             1;
+                    obj.DimensionSummary.SummaryStartCoordinate(:, index) =  0;
+
+                 end
+             end
+
+            obj.DimensionSummary.SummaryStart(:, 3 : end) =      obj.DimensionSummary.SummaryStart(:, 3 : end) + 1;
+
+         end
+
+    
+
+         
+             
+
+         function [SummaryStart ] = getDimensionValues(obj, MyDimensionEntries, TargetColumnNames, Parameter)
 
 
-        function [SummaryStart, SummarySize, SummaryStartCoordinate] = filterDimensionSummariesForChannelIndex(obj, SummaryStart, SummarySize, SummaryStartCoordinate, ChannelIndex)
+             for index = 1 : length(MyDimensionEntries)
 
-              FirstChannelRows =                                      cell2mat(SummaryStart(2:end, 4)) == ChannelIndex;
-            FirstChannelRows =                                      [true; FirstChannelRows];
+                 CurrentDimensionEntry =                    MyDimensionEntries{index};
+                 DimensionName =                            CurrentDimensionEntry.Dimension(1);
+                 TargetColumn =                             find(strcmp(DimensionName, TargetColumnNames));
+                 assert(length(TargetColumn) == 1, 'Column designation mismatch.')
 
-            SummaryStart(~FirstChannelRows, :) =                    [];
-            SummarySize(~FirstChannelRows, :) =                     [];
-            SummaryStartCoordinate(~FirstChannelRows, :) =          [];
+                 SummaryStart{1, TargetColumn} =            CurrentDimensionEntry.(Parameter);
+              
+             end
+
+
+         end
+
+        function [DimensionSummary] = getDimensionSummaryForIndex(obj, ChannelIndex)
+
+            DimensionSummary.SummaryStart =                                 obj.DimensionSummary.SummaryStart;
+            DimensionSummary.SummarySize =                                  obj.DimensionSummary.SummarySize;
+            DimensionSummary.SummaryStartCoordinate =                           obj.DimensionSummary.SummaryStartCoordinate;
+
+            FirstChannelRows =                                                  DimensionSummary.SummaryStart(:, 4) == ChannelIndex;
+          
+            DimensionSummary.SummaryStart(~FirstChannelRows, :) =               [];
+            DimensionSummary.SummarySize(~FirstChannelRows, :) =                [];
+            DimensionSummary.SummaryStartCoordinate(~FirstChannelRows, :) =     [];
 
 
         end
+ 
+        function [StitchingStructure ] = getStitchingStructureForInput(obj, MyStructure, Dimension)
 
-        
-            function [Stitching ] = getStitchingStructureForInput(obj, SummaryStart, SummarySize, SummaryStartCoordinate)
-                [XStart, XSize, XStartCoordinate] =     obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 1);
-                Stitching.X =                           obj.getStitchingStructureForColumn(XStart, XSize, XStartCoordinate);
-                 [YStart, YSize, YStartCoordinate] =    obj.convertCellMatrixIntoNumericVectorForColumn(SummaryStart, SummarySize, SummaryStartCoordinate, 2);
-                Stitching.Y =                           obj.getStitchingStructureForColumn(YStart, YSize, YStartCoordinate);
+            switch Dimension
+
+                case 'X'
+                    Column = 1;
+
+                case 'Y'
+                    Column = 2;
+
             end
-            
-            
-            
-            function StitchingStructure = getStitchingStructureForColumn(obj, Start, SizeList, StartCoordinate)
-            
-                StartCoordinates =   unique(StartCoordinate);
+
+                Start =                         MyStructure.SummaryStart(:, Column);
+                XShifts =                       Start - min(Start);
+
+                SizeList =                      MyStructure.SummarySize(:, Column);
+                XSize =                        unique(SizeList);
+                assert(length(XSize) == 1, 'All sizes must be the same.')
+              
+                StartCoordinate =               MyStructure.SummaryStartCoordinate(:, Column);
+                StartCoordinates =              unique(StartCoordinate);
                 assert(length(StartCoordinates) == 1, 'All start-coordinates must be the same.')
                 assert( StartCoordinates== 0, 'All start-coordinates must be zero.')
-                
-                
-                XSize =                     unique(SizeList);
-                assert(length(XSize) == 1, 'All sizes must be the same.')
-                
-                XShifts =                   Start - min(Start);
                 
                  StitchingStructure.TotalSize =     max(XShifts) + XSize;
                  StitchingStructure.PanelSizes =     SizeList;
                  StitchingStructure.Shifts =        XShifts;
-            
-            end
-            
-            
-              function [SummaryStart, SummarySize, SummaryStartCoordinate] = convertCellMatrixIntoNumericVectorForColumn(obj, SummaryStart, SummarySize, SummaryStartCoordinate, Column)
-            
-                   SummaryStart =                       cell2mat(SummaryStart(2 : end, Column));
-                   SummarySize =                        cell2mat(SummarySize(2 : end, Column));
-                   SummaryStartCoordinate =             cell2mat(SummaryStartCoordinate(2 : end, Column));
-            
-            
-              end
-            
-        
-        end
 
-    methods (Access = private) % GETTERS DIMENSION
-       
-        function WantedDimensionEntries =   getAllDimensionEntries(obj, Character)
-              WantedDimensionEntries = obj.getDimensionEntriesFor(obj.getAllImageSegments, Character);
-        end
-        
-        function WantedDimensionEntries =   getDimensionEntriesFor(obj, ImageSegments, Character)
-                AllDimensionEntries =               cellfun(@(x) x.Directory.DimensionEntries, ImageSegments(:, 6), 'UniformOutput', false);
-                WantedDimensionEntries =            cellfun(@(x) obj.extractDimensionData(x, Character), AllDimensionEntries, 'UniformOutput', false);
-          
-                Empty =                             cellfun(@(x) isempty(x), WantedDimensionEntries);
-                WantedDimensionEntries(Empty) =     [];
+            end
+
+           
             
-        end
-        
-        function XDimensionData =           extractDimensionData(obj, DimensionEntries, Identifier)
-                DimensionNames =       cellfun(@(x) x.Dimension(1), DimensionEntries, 'UniformOutput', false);
-                Index =                strcmp(DimensionNames, Identifier); 
-                if max(Index) == 0
-                    XDimensionData = '';
-                else
-                    XDimensionData =       DimensionEntries{Index};
-                end
+            
+            
+         
+            
+            
+             
+
+               
                 
-        end
+
+         end
         
-        
-    end
-    
     methods (Access = private) % GETTERS: IMAGE-SEGMENTS;
     
         function ImageSegments =    getImageSegementsOfSelectedScenes(obj)
 
+            ImageSegments =                                 obj.getAllImageSegments;
 
-        ImageSegments =         obj.getAllImageSegments;
-        if isempty(obj.WantedPosition)
+            if ~isempty(obj.WantedPosition)
+                
+                ImageSegments =                             obj.getAllImageSegments;
+                SceneDimensionEntries =                     obj.getDimensionInfoFor(ImageSegments, 'S');
+                SceneNumbers =                              cellfun(@(x) x.Start + 1, SceneDimensionEntries);
+                MatchingIndices =                           SceneNumbers == obj.WantedPosition;
+                ImageSegments(~MatchingIndices, :) =        [];
 
-        else
-            SceneDimensionEntries =      obj.getDimensionEntriesFor(ImageSegments, 'S');
-            SceneNumbers =              cellfun(@(x) x.Start + 1, SceneDimensionEntries);
-
-            MatchingIndices = SceneNumbers == obj.WantedPosition;
-            ImageSegments(~MatchingIndices, :) = [];
-
-        end
-
+            end
 
         end
+
+      
+
+      
 
     end
     
     methods (Access = private) % GETTERS IMAGE MAP
         
-        function ImageMap =         getImageMapInternal(obj)
+          function WantedDimensionEntries =   getDimensionInfoFor(obj, ImageSegments, DimensionKey)
+                AllDimensionEntries =                       cellfun(@(x) x.Directory.DimensionEntries, ImageSegments(:, 6), 'UniformOutput', false);
+                WantedDimensionEntries =                    cellfun(@(x) obj.getDescriptionInDimensionEntriesForDimension(x, DimensionKey), AllDimensionEntries, 'UniformOutput', false);
+                ToRemove =                                  cellfun(@(x) isempty(x), WantedDimensionEntries);
+                WantedDimensionEntries(ToRemove) =          [];
+
+        end
+        
+        function XDimensionData =           getDescriptionInDimensionEntriesForDimension(obj, DimensionEntries, WantedDimensionKey)
+                
+                AllDimensionKeys =      obj.getAllDimensionKeysForEntries(DimensionEntries);
+                
+                Index =                strcmp(AllDimensionKeys, WantedDimensionKey); 
+                if max(Index) == 0
+                    XDimensionData =        '';
+                else
+                    XDimensionData =       DimensionEntries{Index};
+                end
+
+        end
+
+        function AllDimensionKeys = getAllDimensionKeysForEntries(obj, DimensionEntries)
+             AllDimensionKeys =       cellfun(@(x) x.Dimension(1), DimensionEntries, 'UniformOutput', false);
+               
+        end
+
+
+        function FinalImageMap =         getImageMapInternal(obj)
             % CREATEIMAGEMAP returns image map
             
-            ImageMap(1,:) =      {'ListWithStripOffsets','ListWithStripByteCounts','FilePointer',...
-                'ByteOrder','BitsPerSample','Precisision','SamplesPerPixel',...
-                'TotcalColumnsOfImage','TotalRowsOfImage',...
-                'TargetFrameNumber','TargetPlaneNumber','RowsPerStrip','TargetStartRows','TargetEndRows','TargetChannelIndex'};
-       
-            ByteOrder =             'ieee-le';
+      
+               
+                SelectedImageSegments =             obj.getImageSegementsOfSelectedScenes;
            
-            
-            SelectedImageSegments =         obj.getImageSegementsOfSelectedScenes;
-            XDimensionData =            obj.getDimensionEntriesFor(SelectedImageSegments, 'X');
-            YDimensionData =            obj.getDimensionEntriesFor(SelectedImageSegments, 'Y');
-            ZDimensionData =            obj.getDimensionEntriesFor(SelectedImageSegments, 'Z');
-            TDimensionData =            obj.getDimensionEntriesFor(SelectedImageSegments, 'T');
-            
-            
-            CDimensionData =            obj.getDimensionEntriesFor(SelectedImageSegments, 'C');
+                MyImageMap =                        obj.getImageMapFileProperties(SelectedImageSegments);
 
 
-            TDimensionStarts =          cellfun(@(x) x.Start + 1, TDimensionData);
-            CDimensionStarts =          cellfun(@(x) x.Start + 1, CDimensionData);
-            
-            
-            
-            NumberOfImages =     size(SelectedImageSegments,1);
-            
-            for ImageIndex = 1 : NumberOfImages
-                
-                CurrentImageStructure =     SelectedImageSegments{ImageIndex,6};
-                
-                switch CurrentImageStructure.Directory.Compression   
-                    case 'Uncompressed'
-                        Compression = 'NoCompression';
-                    otherwise
-                        error('Only uncompressed images supported.')
-                    
-                end
-                
-                
-                switch CurrentImageStructure.Directory.PixelType
+                Structure =                         obj.getDimensionStructureFor(SelectedImageSegments);
+                CompressionTypes =                  cellfun(@(x) obj.getComp(x), SelectedImageSegments(:, 6), 'UniformOutput',false);
+
+                MyImageMap(:, 8) =                    num2cell(Structure.TotalColumnsOfImage);
+                MyImageMap(:, 9) =                    num2cell(Structure.TotalRowsOfImage);
+                MyImageMap(:, 10) =                   num2cell(Structure.TargetFrameNumber);
+                MyImageMap(:, 11) =                   num2cell(Structure.TargetPlaneNumber);
+                MyImageMap(:, 12) =                   num2cell(Structure.TotalRowsOfImage);
+                MyImageMap(:, 14) =                   num2cell(Structure.TotalRowsOfImage);
+                MyImageMap(:, 15) =                   num2cell(Structure.TargetChannelIndex);
+                MyImageMap(:, 13) =                   {1};
+                MyImageMap(:, 16) =                   {0};
+                MyImageMap(:, 17)  =                  CompressionTypes;
+
+
+                FinalImageMap =                     PMImageMap(MyImageMap).getImageMap;
+ 
+        end
+
+        function MyImageMap = getImageMapFileProperties(obj, SelectedImageSegments)
+
+             ByteOrder =                         'ieee-le';
+           
+
+                Offsets =                           cellfun(@(x) x.OffsetForData, SelectedImageSegments(:, 6), 'UniformOutput',false);
+                DataSizes =                         cellfun(@(x) x.DataSize, SelectedImageSegments(:, 6), 'UniformOutput',false);
+
+                [BitsPerSample,Precision, SamplesPerPixel] = cellfun(@(x) obj.getPixelTypeProperties(x.Directory.PixelType), SelectedImageSegments(:, 6), 'UniformOutput',false);
+
+                MyImageMap(:, 1)  =                   Offsets;
+                MyImageMap(:, 2)  =                   DataSizes;
+
+                MyImageMap(:, 4) =                    {ByteOrder};
+
+                MyImageMap(:, 5)  =                   BitsPerSample;
+                MyImageMap(:, 6)  =                   Precision;
+                MyImageMap(:, 7)  =                   SamplesPerPixel;
+
+        end
+
+       
+        function [BitsPerSample,Precision, SamplesPerPixel]  = getPixelTypeProperties(obj, PixelType)
+
+              switch PixelType
                     case 'Gray8'
                         BitsPerSample =         8;
                         Precision =             'uint8';
@@ -394,57 +397,94 @@ classdef PMCZIMetaData
                     otherwise
                         error('Pixel type not supproted')
                 end
-                
-               
-               
-                ImageMap{ImageIndex + 1, 1} =   CurrentImageStructure.OffsetForData;
-                ImageMap{ImageIndex + 1, 2} =   CurrentImageStructure.DataSize;
 
-                ImageMap{ImageIndex + 1, 4} =   ByteOrder;
-                ImageMap{ImageIndex + 1, 5} =   BitsPerSample;
-                ImageMap{ImageIndex + 1, 6} =   Precision;
-                ImageMap{ImageIndex + 1, 7} =   SamplesPerPixel;
+        end
+        
 
-                ImageMap{ImageIndex + 1, 8} =   XDimensionData{ImageIndex}.Size;
-                ImageMap{ImageIndex + 1, 9} =   YDimensionData{ImageIndex}.Size;
-                ImageMap{ImageIndex+1, 10} =    TDimensionStarts(ImageIndex);
-                ImageMap{ImageIndex+1, 11} =    ZDimensionData{ImageIndex}.Start + 1;
-                ImageMap{ImageIndex+1, 12} =    YDimensionData{ImageIndex}.Size;
-                ImageMap{ImageIndex+1, 13} =    1;
-                ImageMap{ImageIndex+1, 14} =    YDimensionData{ImageIndex}.Size;
-                ImageMap{ImageIndex+1, 15} =    CDimensionStarts(ImageIndex);
-                ImageMap{ImageIndex+1, 16} =    0;
-                ImageMap{ImageIndex+1, 17} =    Compression;
+        function Structure = getDimensionStructureFor(obj, SelectedImageSegments)
+            Structure.TotalColumnsOfImage =             cellfun(@(x) x.Size, obj.getDimensionInfoFor(SelectedImageSegments, 'X'));
+            Structure.TotalRowsOfImage =                cellfun(@(x) x.Size, obj.getDimensionInfoFor(SelectedImageSegments, 'Y'));
+            Structure.TargetPlaneNumber =               cellfun(@(x) x.Start, obj.getDimensionInfoFor(SelectedImageSegments, 'Z')) + 1;  
+            Structure.TargetFrameNumber =               cellfun(@(x) x.Start, obj.getDimensionInfoFor(SelectedImageSegments, 'T')) + 1;
+            Structure.TargetChannelIndex =              cellfun(@(x) x.Start, obj.getDimensionInfoFor(SelectedImageSegments, 'C')) + 1;
+
+        end
+
+        function Structure = getImapeMapStructure(obj)
+
+                FieldsForImageReading.ListWithStripOffsets(:,1)=            MyImageFileDirectory.getStripOffsets;
+                FieldsForImageReading.ListWithStripByteCounts(:,1)=         MyImageFileDirectory.getStripByteCounts;
+
+                FieldsForImageReading.FilePointer =                         obj.FilePointer;
+                FieldsForImageReading.ByteOrder =                           obj.Header.byteOrder;
+
+                FieldsForImageReading.BitsPerSample=                        MyImageFileDirectory.getBitsPerSample;
+
+                FieldsForImageReading.Precisision =                         MyImageFileDirectory.getPrecision;
+                FieldsForImageReading.SamplesPerPixel =                     MyImageFileDirectory.getSamplesPerPixel;
+
+                FieldsForImageReading.TotalColumnsOfImage=                  MyImageFileDirectory.getTotalColumns;
+                FieldsForImageReading.TotalRowsOfImage=                     MyImageFileDirectory.getTotalRows;
+
+                FieldsForImageReading.TargetFrameNumber =                   FrameNumber;
+                FieldsForImageReading.TargetPlaneNumber =                   PlaneNumber;
+
+                FieldsForImageReading.RowsPerStrip =                        MyImageFileDirectory.getRowsPerStrip; 
                 
-                
-            end
-            
-            
+                FieldsForImageReading.TargetStartRows(:,1)=                 obj.getStripStartRows(MyImageFileDirectory.getRowsPerStrip, MyImageFileDirectory.getTotalRows);          
+                FieldsForImageReading.TargetEndRows(:,1)=                   obj.getStripEndRows(MyImageFileDirectory.getRowsPerStrip, MyImageFileDirectory.getTotalRows);
+                FieldsForImageReading.TargetChannelIndex=                   MyTargetChannelIndex;
+
+                FieldsForImageReading.PlanarConfiguration=                  MyImageFileDirectory.getPlanarConfiguration;
+                FieldsForImageReading.Compression=                          MyImageFileDirectory.getCompressionType;
+
+
+
         end
         
     end
+
+    methods (Access = private)
+
+         function [Compression] = getComp(obj, CurrentImageStructure)
+
+             switch CurrentImageStructure.Directory.Compression   
+                    case 'Uncompressed'
+                        Compression = 'NoCompression';
+
+                    otherwise
+                        error('Only uncompressed images supported.')
+                    
+             end
+
+         end
+    
+
+
+    end
     
     methods (Access = private) % GETTERS METADATA
-        
+
          function MetaData =         getMetaDataInternal(obj)
  
-                ImageSegments =        obj.getImageSegementsOfSelectedScenes;
+                ImageSegments =                                     obj.getImageSegementsOfSelectedScenes;
 
-                XDimensionData =        max(cellfun(@(x) x.Size, obj.getDimensionEntriesFor(ImageSegments, 'X')));
-                YDimensionData =        max(cellfun(@(x) x.Size, obj.getDimensionEntriesFor(ImageSegments, 'Y')));
-                ZDimensionData =        max(cellfun(@(x) x.Start, obj.getDimensionEntriesFor(ImageSegments, 'Z'))) + 1;
-                TDimensionData =        max(cellfun(@(x) x.Start, obj.getDimensionEntriesFor(ImageSegments, 'T'))) + 1;
-                CDimensionData =        max(cellfun(@(x) x.Start, obj.getDimensionEntriesFor(ImageSegments, 'C'))) + 1;
+                XDimensionData =                                    cellfun(@(x) x.Size, obj.getDimensionInfoFor(ImageSegments, 'X'));
+                YDimensionData =                                    cellfun(@(x) x.Size, obj.getDimensionInfoFor(ImageSegments, 'Y'));
+                ZDimensionData =                                    cellfun(@(x) x.Start, obj.getDimensionInfoFor(ImageSegments, 'Z')) + 1;
+                TDimensionData =                                    cellfun(@(x) x.Start, obj.getDimensionInfoFor(ImageSegments, 'T')) + 1;
+                CDimensionData =                                    cellfun(@(x) x.Start, obj.getDimensionInfoFor(ImageSegments, 'C')) + 1;
 
-                MetaData.EntireMovie.NumberOfRows=                  XDimensionData;
-                MetaData.EntireMovie.NumberOfColumns=               YDimensionData;
-                MetaData.EntireMovie.NumberOfPlanes=                ZDimensionData;
-                MetaData.EntireMovie.NumberOfTimePoints=            TDimensionData;
-                MetaData.EntireMovie.NumberOfChannels=              CDimensionData;
+                MetaData.EntireMovie.NumberOfRows=                  max(XDimensionData);
+                MetaData.EntireMovie.NumberOfColumns=               max(YDimensionData);
+                MetaData.EntireMovie.NumberOfPlanes=                max(ZDimensionData);
+                MetaData.EntireMovie.NumberOfTimePoints=            max(TDimensionData);
+                MetaData.EntireMovie.NumberOfChannels=              max(CDimensionData);
 
                 ScalingString =                                    PMXML(obj.getMetaDataString).getElementContentsWithTitle('Scaling' ); 
                 DistanceStrings =                                  PMXML(ScalingString{1,1}).getElementContentsWithTitle('Distance' ); 
                 Values =                                           cellfun(@(x) str2double(PMXML(x).getElementContentsWithTitle('Value')),  DistanceStrings); 
+                
                 MetaData.EntireMovie.VoxelSizeX=                   Values(1); 
                 MetaData.EntireMovie.VoxelSizeY=                   Values(2);  
                 if length(Values) == 3
@@ -459,13 +499,15 @@ classdef PMCZIMetaData
          end
         
          function TimeStamps =      getTimeStampsFromSegmentList(obj)
-              Attachmenets =         obj.SegmentList(cellfun(@(x) contains(x, 'ZISRAWATTACH'), obj.SegmentList(:,1)),:);
-             Entries =              cellfun(@(x) x.AttachmentEntryA1, Attachmenets(:,6),  'UniformOutput', false);
-             Row =                  cellfun(@(x) contains(x.ContentFileType', 'CZTIMS'), Entries);
-            TimeStamps = cell2mat(Attachmenets{Row, 6}.Data.TimeStamps);
-            
-           end
+            Attachmenets =          obj.SegmentList(cellfun(@(x) contains(x, 'ZISRAWATTACH'), obj.SegmentList(:,1)),:);
+            Entries =               cellfun(@(x) x.AttachmentEntryA1, Attachmenets(:,6),  'UniformOutput', false);
+            Row =                   cellfun(@(x) contains(x.ContentFileType', 'CZTIMS'), Entries);
+            TimeStamps =            cell2mat(Attachmenets{Row, 6}.Data.TimeStamps);
+
+          end
         
+         
+
     end
 
     methods (Access = private) % GETTERS SEGMENTS
@@ -769,9 +811,9 @@ classdef PMCZIMetaData
                 
         function obj =              AdjustMetaDataByImageMap(obj)
             
-            myDirectory =   PMImageMap(obj.ImageMap);
-            MaxPlanes =     myDirectory.getMaxPlaneForEachFrame;
-            NoFit =         find(MaxPlanes~= obj.getMaxPlaneFromMetaData);
+            myImageMap =    PMImageMap(obj.ImageMap);
+            MaxPlanes =     myImageMap.getMaxPlaneForEachFrame;
+            NoFit =         find(MaxPlanes ~= obj.getMaxPlaneFromMetaData);
            
             if length(NoFit) > 1
                  error('Cannot parse image directory.') % if the last frame is incomplete (only some planes captured) remove last frame; (same thing should be probably done for planes too;
@@ -781,7 +823,7 @@ classdef PMCZIMetaData
                 obj.MetaData.RelativeTimeStamp(end,:) = [];
                 obj.MetaData.TimeStamp(end,:) = [];
                 
-                Rows = [false; myDirectory.getRowsForFrame(obj.getMaxFrameFromMetaData)];
+                Rows = [false; myImageMap.getRowsForFrame(obj.getMaxFrameFromMetaData)];
                 
                 obj.ImageMap(Rows, :) = [];
                 
@@ -827,5 +869,62 @@ classdef PMCZIMetaData
      
         
     end
-end
 
+    methods (Access = private) % GETTERS: OBJECTIVE:
+
+        function objectiveString =  getObjectiveString(obj)
+            myString =                  obj.getMetaDataString;
+            xmlParser =                 PMXML(myString);
+            objectiveData =             xmlParser.getElementContentsWithTitle('Objectives');
+            assert(length(objectiveData) == 1, 'Can parse only single used objective.')
+            objectiveString =           objectiveData{1};
+        end
+
+        function Objective =        getObjectiveStructure(obj)
+
+            objectiveString =                       obj.getObjectiveString;
+            myXmlObject =                           PMXML(objectiveString);
+            Keywords =                              {'LensNA'; 'NominalMagnification'; 'WorkingDistance'; 'PupilGeometry'; 'ImmersionRefractiveIndex'; 'Immersion'};
+            Contents =                              cellfun(@(x) myXmlObject.getElementContentsWithTitle(x), Keywords);
+            
+            Objective.NumericalAperture =         str2double(Contents{1});
+            Objective.Magnification =             str2double(Contents{2});
+            Objective.WorkingDistance =           str2double(Contents{3});
+            Objective.PupilGeometry =             Contents{4};
+            Objective.ImmersionRefractiveIndex =  str2double(Contents{5});
+            Objective.Immersion =                 Contents{6};
+
+        end
+
+        function Name =             getObjectiveName(obj)
+            
+            objectiveString =                       obj.getObjectiveString;
+            [ AttributeNames, AttributeValues ] =   PMXML(objectiveString).getAttributesForElementKey('Objective');
+            assert(length(AttributeNames) == 1, 'Cannot parse multiple inputs')
+            MyAttributeName =                       AttributeNames{1};
+            Index =                                 strcmp(MyAttributeName, 'Name');
+            Name=                                   AttributeValues{1}{Index};
+
+        end
+
+        function Identifier =       getIdentifierForObjectiveName(obj, Name)
+
+            myString =                  obj.getMetaDataString;
+            pos = strfind(myString, ['<Objective Name="', Name]);
+            if length(pos)== 1
+                NewString =         myString(pos:end);
+                Pos =               strfind(NewString, 'UniqueName');
+                NewString =         NewString(Pos:end);
+                Pos =               strfind(NewString , '"');
+                Identifier =        NewString(Pos(1) + 1: Pos(2) - 1);
+            else
+                Identifier = 'Identifier not found.';
+            end
+
+        end
+
+
+
+    end
+
+end

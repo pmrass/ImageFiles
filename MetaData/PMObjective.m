@@ -29,7 +29,21 @@ classdef PMObjective
             
             NumberOfArguments = length(varargin);
             switch NumberOfArguments
+
+                case 1
+
+                    obj.Name =                          varargin{1}.Name;
+                    obj.Identifier =                    varargin{1}.Identifier;
+                    obj.NumericalAperture =             varargin{1}.NumericalAperture;
+                    obj.Magnification =                 varargin{1}.Magnification;
+                    obj.WorkingDistance =               varargin{1}.WorkingDistance;
+                    obj.PupilGeometry =                 varargin{1}.PupilGeometry;
+                    obj.ImmersionRefractiveIndex =      varargin{1}.ImmersionRefractiveIndex;
+                    obj.Immersion =                     varargin{1}.Immersion;
+
+
                 case 8
+                    error('Use structure instead.')
                     obj.Name =                          varargin{1};
                     obj.Identifier =                    varargin{2};
                     obj.NumericalAperture =             str2double(varargin{3});
@@ -38,6 +52,7 @@ classdef PMObjective
                     obj.PupilGeometry =                 varargin{6};
                     obj.ImmersionRefractiveIndex =      str2double(varargin{7});
                     obj.Immersion =                     varargin{8};
+
                 otherwise
                     error('Wrong input.')
             end

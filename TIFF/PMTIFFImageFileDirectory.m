@@ -78,6 +78,7 @@ classdef PMTIFFImageFileDirectory
 
         function Compression =      getCompressionType(obj)
 
+            
             switch obj.getContentForCode(259)
 
                 case 1
@@ -129,19 +130,26 @@ classdef PMTIFFImageFileDirectory
 
         function Unit =             getResolutionUnit(obj)
 
-            switch obj.getContentForCode(296)
+            try 
+                switch obj.getContentForCode(296)
+    
+                case 1
+                    Unit = 'Arbitrary';
+    
+                case 2
+                    Unit = 'Inch';
+    
+                case 3
+                     Unit = 'Centimeter';
+    
+                otherwise
+                    error('Invalid unit.')
+    
+    
+                end
+            catch
 
-            case 1
-                Unit = 'Arbitrary';
-
-            case 2
-                Unit = 'Inch';
-
-            case 3
-                 Unit = 'Centimeter';
-
-            otherwise
-                error('Invalid unit.')
+                Unit = 'Undefined';
 
 
             end
@@ -156,7 +164,23 @@ classdef PMTIFFImageFileDirectory
  
         function PixelSize =    getXPixelSize(obj)
            
-                 switch obj.getResolutionUnit
+            PixelSize = obj.getPixelSizeForMethod(@obj.getXPixelsPerUnit);
+                
+            
+        end
+
+            function PixelSize =    getYPixelSize(obj)
+            
+                PixelSize = obj.getPixelSizeForMethod(@obj.getYPixelsPerUnit);
+            
+            
+            end
+
+
+            function PixelSize = getPixelSizeForMethod(obj, Method)
+
+
+                  switch obj.getResolutionUnit
                      case 'Inch'
                          
                          PixelsPerUnit =        obj.getXPixelsPerUnit;
@@ -170,6 +194,9 @@ classdef PMTIFFImageFileDirectory
                                  PixelSize =      PixelsPerUnit(1);
                                 
                          end
+
+                     case 'Undefined'
+                         PixelSize =      1;
                         
                      otherwise
                          error('Unit not supported')
@@ -177,7 +204,11 @@ classdef PMTIFFImageFileDirectory
                  end
                  
             
-        end
+
+
+
+            end
+
         
         function Software =     getSoftWareName(obj)
             
@@ -191,29 +222,7 @@ classdef PMTIFFImageFileDirectory
              
         end
         
-        function PixelSize =    getYPixelSize(obj)
-            
-              switch obj.getResolutionUnit
-                     case 'Inch'
-                         PixelsPerUnit =        obj.getYPixelsPerUnit;
-                          switch obj.getSoftWareName
-                            
-                             case 'IncuCyte 2021C (Essen.dll v20213.1.7936.24788)'
-                              PixelsPerMicroMeter =      PixelsPerUnit(1) / 1e+9;
-                                PixelSize =                1 / PixelsPerMicroMeter;
-                                
-                                  otherwise
-                                 PixelSize =      PixelsPerUnit(1);
-                                
-                         end
-                     otherwise
-                         error('Unit not supported')
-                     
-                     
-                 end
-            
-            
-        end
+    
         
     end
     
@@ -309,7 +318,7 @@ classdef PMTIFFImageFileDirectory
         
         function Content = getContentForCode(obj, Code)
             
-            Row=               cell2mat(obj.CurrentImageFileDirectory(:,1))== Code; %'ImageLength');
+            Row=               find(cell2mat(obj.CurrentImageFileDirectory(:,1))== Code); %'ImageLength');
             Content =          obj.CurrentImageFileDirectory{Row,4};
         end
         

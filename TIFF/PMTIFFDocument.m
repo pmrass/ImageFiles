@@ -26,7 +26,7 @@ classdef PMTIFFDocument
             % PMTIFFDocument
             % takes 1 argument: name of TIFF file
             % parses file upon initialization
-            
+
             fprintf('@Create PMTIFFDocument for file %s.\n', FileName)
             obj.FileName =                                      FileName;
             obj.FilePointer =                                   fopen(FileName,'r','l');
@@ -37,11 +37,9 @@ classdef PMTIFFDocument
             
             obj.Header =                                        obj.GetTIFFHeader;
             obj.ImageFileDirectories =                          obj.GetImageFileDirectories;
-            
             switch obj.getType
                 
                 case 'LSM'
-                    
                     obj.MetaData =                           obj.ExtractLSMMetaData;
                     obj =                                    obj.filterImageFileDirectoriesByImageSize;
                      LSMObject =                             PMTIFFLSMDocument(...
@@ -53,18 +51,18 @@ classdef PMTIFFDocument
                     OrderOfImages =                         LSMObject.getImageOrderMatrix;
                   
                 case 'OME'                    
-
                      myOMEDocument =                       PMTIFFOMEDocument(obj.getImageFileDirectoriesWithCode(270));
                      obj.MetaData =                          myOMEDocument.getMetaData;
                      OrderOfImages =                         myOMEDocument.getImageOrderMatrix;
                      
                 otherwise
-
-                     obj.MetaData =                  obj.getMetaDataObject.getMetaDataStructure;   
+                    obj.MetaData =                  obj.getMetaDataObject.getMetaDataStructure;   
                     OrderOfImages =                obj.getImageOrderMatrix;
                     
                     
             end
+            
+
             
                     ImageMapObjects =       cellfun(@(dir,x,y,z) ...
                                                         PMImageMap(obj.getImapeMapStructure(dir,x,y,z)), ...
@@ -165,7 +163,7 @@ classdef PMTIFFDocument
                     if AllRowsContainOMEString
                         ISOME = true;
                     else
-                        error('Unsupported TIFF type')
+                        ISOME = false;
                     end
                   
               end

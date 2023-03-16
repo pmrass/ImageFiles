@@ -93,9 +93,6 @@ classdef PMImageMap
 
                                 end
                                 
-                               
-                            
-                                
                         case 'struct'
                             
                             FieldsForImageReading = varargin{1};
@@ -153,6 +150,15 @@ classdef PMImageMap
     
     methods % GETTERS
         
+        function ImageMap = getImageMap(obj)
+
+           ImageMap = [ obj.ColumnTitles; obj.RawData];
+
+          
+
+        end
+
+
         function matrix =           getCellMatrix(obj)
             % GETCELLMATRIX returns cell matrix with contents of image map (without column-titles);
             matrix = obj.RawData(2: end, :);
